@@ -3,7 +3,6 @@ from typing import Generic, TypeVar, Set, Dict, Any, Literal, Tuple
 from collections.abc import Hashable
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from itertools import product
 
 NodeConnectionT = Literal["HALL", "WALL"]
 NodeLookupT = TypeVar("NodeLookupT", bound=Hashable)
@@ -27,12 +26,18 @@ class Node(Generic[NodeLookupT]):
         raise NotImplementedError
 
 
+def get_connection_id(
+    a: NodeLookupT, b: NodeLookupT
+) -> Tuple[NodeLookupT, NodeLookupT]:
+    return (a, b) if a < b else (b, a)  # type: ignore
+
+
 class ConnectedNodes(ABC, Generic[NodeLookupT]):
     """Collection of inter-connected nodes."""
 
     size: int
-    nodes: Dict[NodeLookupT, Node[NodeLookupT]]
-    connections: Dict[Tuple[NodeLookupT, NodeLookupT], NodeConnectionT]
+    nodes: Dict[NodeLookupT, Node[NodeLookupT]] = {}
+    connections: Dict[Tuple[NodeLookupT, NodeLookupT], NodeConnectionT] = {}
 
     def __init__(self, size: int, default_connection: NodeConnectionT):
         self.size = size
@@ -42,32 +47,40 @@ class ConnectedNodes(ABC, Generic[NodeLookupT]):
         """Generate a maze."""
 
         def __get_unvisited_neighbor_ids(
-            node_id: NodeLookupT, visited_node_ids: Set[NodeLookupT]
+            node_id: NodeLookupT, unvisited_node_ids: Set[NodeLookupT]
         ) -> Set[NodeLookupT]:
             node = self.nodes[node_id]
-            return {
-                connection_id[0 if connection_id[1] == node_id else connection_id[1]]
+            neighbor_ids = {
+                connection_id[0 if connection_id[1] == node_id else 1]
                 for connection_id in node.connection_ids
-                if connection_id not in visited_node_ids
+            }
+            return {
+                neighbor_id
+                for neighbor_id in neighbor_ids
+                if neighbor_id in unvisited_node_ids
             }
 
         start_node_id = random.choice(list(self.nodes.keys()))
-        visited_node_ids = {start_node_id}
-        print("Running")
-        while visited_node_ids:
-            node_id = random.choice(list(visited_node_ids))
-            print(f"Selected {node_id}")
+        active_node_ids = {start_node_id}
+        unvisited_node_ids = set(list(self.nodes.keys()))
+        unvisited_node_ids.remove(start_node_id)
+        while active_node_ids:
+            node_id = random.choice(list(active_node_ids))
             unvisited_neighbor_ids = __get_unvisited_neighbor_ids(
-                node_id, visited_node_ids
+                node_id, unvisited_node_ids
             )
-            if not unvisited_neighbor_ids:
-                print(f"Dropping {node_id}")
-                visited_node_ids.remove(node_id)
+            if len(unvisited_neighbor_ids) == 0:
+                active_node_ids.remove(node_id)
+
                 continue
             neighbor_id = random.choice(list(unvisited_neighbor_ids))
-            self.connections[(node_id, neighbor_id)] = "HALL"
-            visited_node_ids.add(neighbor_id)
-            print({f"Added {neighbor_id}"})
+            connection_id = get_connection_id(node_id, neighbor_id)
+            self.connections[connection_id] = "HALL"
+            active_node_ids.add(neighbor_id)
+            unvisited_node_ids.remove(neighbor_id)
+            print(f"Connecting {node_id} to {neighbor_id}")
+        for a, b in self.connections.items():
+            print(f"{a}: {b}")
 
     @abstractmethod
     def __build__(self, default_connection: NodeConnectionT) -> None:
